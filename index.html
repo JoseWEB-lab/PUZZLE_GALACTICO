@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Puzzle Galáctico</title>
+  <style>
+    body {
+      margin: 0;
+      background: radial-gradient(circle at center, #020202, #0a0a1f);
+      color: white;
+      font-family: 'Segoe UI', sans-serif;
+      text-align: center;
+    }
+
+    canvas {
+      margin-top: 20px;
+      border: 3px solid #333;
+      box-shadow: 0 0 20px #00ffff;
+      background-color: #000;
+    }
+
+    #score {
+      margin: 20px;
+      font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Puzzle Galáctico</h1>
+  <canvas id="gameCanvas" width="400" height="400"></canvas>
+  <div id="score">Puntos: <span id="points">0</span></div>
+  <audio id="carcSound" src="carc.mp3"></audio>
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const scoreDisplay = document.getElementById("points");
+
+const rows = 8, cols = 8;
+const tileSize = 50;
+const gravitySpeed = 5;
+const shapes = ['⭕', '🔺', '🟩', '🛸'];
+
+let grid = [], animGrid = [], particles = [];
+let score = 0, selectedTile = null;
+
+function randomShape() {
+  return shapes[Math.floor(Math.random() * shapes.length)];
+}
+
+function initGrid() {
+  grid = [];
+  animGrid = [];
+  for (let r = 0; r < rows; r++) {
+    const row = [], animRow = [];
+    for (let c = 0; c < cols; c++) {
+      row.push(randomShape());
+      animRow.push({ y: r * tileSize, targetY: r * tileSize });
+    }
+    grid.push(row);
+    animGrid.push(animRow);
+  }
+}
+
+function updateAnimations() {
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      let anim = animGrid[r][c];
+      if (anim.y < anim.targetY) {
+        anim.y += gravitySpeed;
+        if (anim.y > anim.targetY) anim.y = anim.targetY;
+      }
+    }
+  }
+}
+
+function drawGrid() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const shape = grid[r][c];
+      const anim = animGrid[r][c];
+
+      // Fondo de cada celda
+      ctx.fillStyle = "#111";
+      ctx.fillRect(c * tileSize, anim.y, tileSize, tileSize);
+
+      // Dibuja el emoji si existe
+      if (shape) {
+        ctx.font = "28px Segoe UI Emoji";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#0ff";
+        ctx.fillText(shape, c * tileSize + tileSize / 2, anim.y + tileSize / 2);
+      }
+    }
+  }
+}
+</script>
+<script>
+function findCombos() {
+  const matched = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols - 2; c++) {
+      let a = grid[r][c], b = grid[r][c + 1], d = grid[r][c + 2];
+      if (a && a === b && a === d) {
+        matched.push([r, c], [r, c + 1], [r, c + 2]);
+      }
+    }
+  }
+  for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows - 2; r++) {
+      let a = grid[r][c], b = grid[r + 1][c], d = grid[r + 2][c];
+      if (a && a === b && a === d) {
+        matched.push([r, c], [r + 1, c], [r + 2, c]);
+      }
+    }
+  }
+  return matched;
+}
+
+function findSquareCombo() {
+  for (let r = 0; r < rows - 1; r++) {
+    for (let c = 0; c < cols - 1; c++) {
+      const t = grid[r][c];
+      if (
+        t &&
+        grid[r][c + 1] === t &&
+        grid[r + 1][c] === t &&
+        grid[r + 1][c + 1] === t
+      ) {
+        return { r: r + 0.5, c: c + 0.5 };
+      }
+    }
+  }
+  return null;
+}
+
+function createExplosion(x, y, color = "#0ff") {
+  for (let i = 0; i < 25; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 4,
+      vy: (Math.random() - 0.5) * 4,
+      size: Math.random() * 3 + 2,
+      life: 40,
+      color
+    });
+  }
+}
+
+function updateParticles() {
+  particles.forEach(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life--;
+  });
+  particles = particles.filter(p => p.life > 0);
+}
+
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = p.life / 40;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1.0;
+}
+
+function playCarcSound() {
+  const carc = document.getElementById("carcSound");
+  if (!carc) return;
+  if (carc.readyState >= 2) {
+    carc.currentTime = 0;
+    carc.play();
+  } else {
+    carc.oncanplaythrough = () => {
+      carc.currentTime = 0;
+      carc.play();
+    };
+  }
+}
+
+function explodeArea(centerRow, centerCol) {
+  const px = centerCol * tileSize + tileSize / 2;
+  const py = centerRow * tileSize + tileSize / 2;
+  createExplosion(px, py);
+  playCarcSound();
+
+  for (let r = Math.floor(centerRow - 1); r <= Math.floor(centerRow + 1); r++) {
+    for (let c = Math.floor(centerCol - 1); c <= Math.floor(centerCol + 1); c++) {
+      if (grid[r] && grid[r][c]) {
+        grid[r][c] = null;
+        animGrid[r][c].y = (r - 3) * tileSize;
+        animGrid[r][c].targetY = r * tileSize;
+        score += 10;
+      }
+    }
+  }
+  scoreDisplay.textContent = score;
+}
+
+function applyGravity() {
+  for (let c = 0; c < cols; c++) {
+    for (let r = rows - 1; r >= 0; r--) {
+      if (grid[r][c] == null) {
+        for (let k = r - 1; k >= 0; k--) {
+          if (grid[k][c]) {
+            grid[r][c] = grid[k][c];
+            grid[k][c] = null;
+            animGrid[r][c].y = animGrid[k][c].y;
+            animGrid[r][c].targetY = r * tileSize;
+            break;
+          }
+        }
+        if (grid[r][c] == null) {
+          grid[r][c] = randomShape();
+          animGrid[r][c].y = -tileSize;
+          animGrid[r][c].targetY = r * tileSize;
+        }
+      }
+    }
+  }
+}
+
+function handleCascadingMatches() {
+  let found = true;
+  while (found) {
+    const square = findSquareCombo();
+    const lines = findCombos();
+    found = square || lines.length > 0;
+
+    if (square) explodeArea(square.r, square.c);
+
+    lines.forEach(([r, c]) => {
+      createExplosion(c * tileSize + tileSize / 2, r * tileSize + tileSize / 2);
+      playCarcSound();
+      grid[r][c] = null;
+      animGrid[r][c].y = (r - 3) * tileSize;
+      animGrid[r][c].targetY = r * tileSize;
+      score += 10;
+    });
+
+    applyGravity();
+  }
+
+  scoreDisplay.textContent = score;
+}
+</script>
+<script>
+canvas.addEventListener("click", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  const col = Math.floor(x / tileSize);
+  const row = Math.floor(y / tileSize);
+
+  if (!selectedTile) {
+    selectedTile = { row, col };
+  } else {
+    const r1 = selectedTile.row, c1 = selectedTile.col;
+    const r2 = row, c2 = col;
+
+    if (Math.abs(r1 - r2) + Math.abs(c1 - c2) === 1) {
+      const temp = grid[r1][c1];
+      grid[r1][c1] = grid[r2][c2];
+      grid[r2][c2] = temp;
+
+      const animTemp = animGrid[r1][c1].y;
+      animGrid[r1][c1].y = animGrid[r2][c2].y;
+      animGrid[r2][c2].y = animTemp;
+
+      setTimeout(() => {
+        const match = findCombos().length > 0 || findSquareCombo();
+        if (match) {
+          handleCascadingMatches();
+        } else {
+          // Revertir movimiento
+          const temp2 = grid[r1][c1];
+          grid[r1][c1] = grid[r2][c2];
+          grid[r2][c2] = temp2;
+
+          const animTemp2 = animGrid[r1][c1].y;
+          animGrid[r1][c1].y = animGrid[r2][c2].y;
+          animGrid[r2][c2].y = animTemp2;
+        }
+        selectedTile = null;
+      }, 100);
+    } else {
+      selectedTile = { row, col };
+    }
+  }
+});
+
+function gameLoop() {
+  updateAnimations();
+  updateParticles();
+  drawGrid();
+  drawParticles();
+  requestAnimationFrame(gameLoop);
+}
+
+initGrid();
+gameLoop();
+</script>
+</body>
+</html>
